@@ -1,74 +1,76 @@
 # Resource-Constrained Hybrid MPC–PID Control for Industrial Process Automation
 
-This project presents a hybrid control strategy for a level-control process commonly found in industrial automation systems. The goal is to regulate tank liquid height under actuator limits while managing computational effort. The solution combines a classical PID controller with constrained model predictive control (MPC), and applies a supervisory policy that chooses the appropriate controller depending on operating conditions.
+This project implements a hybrid level-control strategy for a tank process used in industrial automation. The control architecture follows the ABB-inspired pattern of combining a conventional PID feedback loop with predictive model-based feedforward action.
 
-## 1. Problem formulation
+The controller equation is:
 
-A tank-level process can be modeled by a nonlinear mass balance:
-
-A dh/dt = q_in - q_out
+u_total = u_PID + u_MPC
 
 where:
-- A is tank cross-sectional area
-- q_in is inflow to the tank
-- q_out = k_out * sqrt(h) is the outflow depending on height
+- u_PID is the feedback correction computed from the error e = r - h
+- u_MPC is a predictive feedforward contribution computed from the model and current operating point
+- final actuator authority is clipped to the allowed bounds
 
-The nonlinear state dynamics are therefore:
+This is the architecture most directly aligned with the ABB description: an existing PID loop remains in place, while MPC contributes an anticipatory correction based on the predicted future process behavior.
 
-h_dot = (q_in - k_out * sqrt(h)) / A
+## 1. Process model
 
-This model is representative of many industrial tanks, sumps, and surge vessels.
+The tank dynamics are modeled as:
 
-## 2. Control architecture
+A dh/dt = q_in - k_out sqrt(h)
 
-The controller combines two strategies:
-- PID: used in nominal operation for simplicity and speed
-- MPC: used when the system is far from setpoint, highly dynamic, or near constraint boundaries
+with a discrete-time approximation:
 
-A hybrid supervisor selects between them based on tracking error and operating conditions.
+h_{k+1} = h_k + (dt / A) (q_k - k_out sqrt(h_k))
 
-## 3. Mathematical modeling
+The nonlinear model is used for process simulation in Python, and a local linearized model is used inside the MPC optimization.
 
-A linearized discrete-time model around an operating point is used for MPC:
+## 2. MPC feedforward contribution
 
-x[k+1] = A x[k] + B u[k]
+The predictive controller solves a small quadratic program around the current operating point. The formulation is based on the standard tracking objective:
 
-y[k] = C x[k]
+min_{u_{ff}} sum_{i=1}^{N_p} Q (h_{k+i} - r)^2 + sum_{i=0}^{N_c-1} R (Delta u_{k+i})^2
 
-For the tank-level process:
-- x = h
-- u = q_in
-- A = 1 - dt * (k_out / (2 A sqrt(h0)))
-- B = dt / A
+subject to:
+- u_min <= u_PID + u_ff <= u_max
+- h_min <= h <= h_max
+- input-rate limits, where used
 
-The predictive controller minimizes a quadratic cost over a finite horizon:
+This project uses a simplified one-step predictive feedforward implementation to keep the controller compact and easy to compile while still preserving the essential ABB-style structure.
 
-J = sum_{k=0}^{N-1} (x[k] - x_ref)^T Q (x[k] - x_ref) + u[k]^T R u[k]
+## 3. Hybrid signal combination
 
-with input constraints:
+The actual implemented command law is:
 
-u_min <= u[k] <= u_max
+u_cmd = clamp(u_PID + u_MPC_ff, u_min, u_max)
+
+with:
+- u_PID = PID(r, h, dt)
+- u_MPC_ff = feedforward term from the linearized predictive model
+- clamp is applied to respect actuator bounds and to prevent unstable wind-up in saturated operation
+
+The hybrid supervisory logic only enables MPC feedforward when the system is outside the nominal operating band, when the error is large, or when the process is entering a transient condition that benefits from predictive action.
 
 ## 4. Repository structure
 
-- `python/`: nonlinear simulation and data plotting
-- `src/common/`: tank model utilities
-- `src/pid/`: PID implementation in C++
-- `src/mpc/`: constrained MPC controller in C++
-- `src/hybrid/`: hybrid switching logic
-- `src/benchmark/`: performance comparison and benchmark calculations
-- `docs/`: technical notes
+- `python/`: process simulation and plots
+- `src/common/`: tank model
+- `src/pid/`: feedback controller
+- `src/mpc/`: predictive controller and feedforward optimizer
+- `src/hybrid/`: ABB-style hybrid supervisor
+- `src/benchmark/`: benchmarking and metric collection
+- `docs/`: derivations and design notes
 
-## 5. Build and execution
+## 5. Build and run
 
-Requirements:
+### Requirements
 - CMake 3.16+
 - C++17 compiler
 - Python 3.10+
 - NumPy
 - Matplotlib
 
-### Build C++ project
+### Build the C++ application
 
 ```bash
 mkdir -p build
@@ -77,31 +79,42 @@ cmake --build build
 ./build/hybrid_control_app
 ```
 
-### Run Python simulation
+### Run the Python tank simulation
 
 ```bash
 python3 -m pip install -r requirements.txt
 python3 python/run_simulation.py
 ```
 
-### Generate benchmark plots
+### Plot saved results
 
 ```bash
 python3 python/plot_results.py
 ```
 
-## 6. Expected results
+## 6. Experimental plan
 
-The benchmark compares:
-- PID-only regulation quality and latency
-- MPC-only regulation quality and latency
-- Hybrid PID–MPC operation under dynamic conditions
+The benchmark script evaluates multiple scenarios:
+- setpoint step change
+- inflow disturbance
+- actuator saturation
+- model mismatch
+- solver failure fallback
+- different prediction horizons
 
-The hybrid strategy is intended to provide a practical trade-off:
-- PID is low-computation and fast
-- MPC improves tracking and constraint satisfaction when needed
-- hybrid logic reduces computational demand while preserving performance
+The project records:
+- IAE
+- overshoot and settling time
+- constraint violations
+- mean, 95th percentile, and max execution time
+- peak memory footprint
+- MPC activation ratio
+- solver iteration count
 
-## 7. Notes
+Important note: laptop measurements do not establish a real-time worst-case execution-time guarantee for ABB hardware. They provide a useful development benchmark and an empirical design signal, not a certified real-time bound.
 
-This is a compact but complete educational and research-grade control project suitable for demonstrating industrial process automation, model-based control, and performance benchmarking.
+## 7. Documentation
+
+See:
+- `docs/mathematical_formulation.md`
+- `docs/results.md`

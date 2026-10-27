@@ -1,8 +1,2 @@
-.gitignore
-build/
-.vscode/
-__pycache__/
-*.pyc
-*.png
-*.csv
-*.log
+numpy>=1.26
+matplotlib>=3.7
