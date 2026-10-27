@@ -46,7 +46,6 @@ def simulate():
     tank = TankProcess()
     setpoint = tank.params.setpoint
     height = 0.25
-    q_in = 0.2
     controller = pid_update(setpoint)
     history = []
 

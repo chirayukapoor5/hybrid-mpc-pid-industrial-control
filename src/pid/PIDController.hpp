@@ -2,8 +2,7 @@
 
 class PIDController {
 public:
-    PIDController(double kp, double ki, double kd,
-                  double minOut, double maxOut);
+    PIDController(double kp, double ki, double kd, double minOut, double maxOut);
 
     double update(double setpoint, double measurement, double dt);
     void reset();

@@ -2,16 +2,11 @@
 
 class MPCController {
 public:
-    MPCController(double dt = 0.5,
-                  int horizon = 5,
-                  double qWeight = 12.0,
-                  double rWeight = 0.8,
-                  double deltaWeight = 0.3);
+    MPCController(double dt = 0.5, int horizon = 5,
+                  double qWeight = 10.0, double rWeight = 0.8, double deltaWeight = 0.3);
 
     void configure(double uMin, double uMax);
-    double compute(double currentHeight,
-                   double setpoint,
-                   double previousInput);
+    double compute(double currentHeight, double setpoint, double previousInput);
 
 private:
     double dt_;

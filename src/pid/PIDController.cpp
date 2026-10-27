@@ -2,10 +2,8 @@
 
 #include <algorithm>
 
-PIDController::PIDController(double kp, double ki, double kd,
-                             double minOut, double maxOut)
-    : kp_(kp), ki_(ki), kd_(kd),
-      minOut_(minOut), maxOut_(maxOut),
+PIDController::PIDController(double kp, double ki, double kd, double minOut, double maxOut)
+    : kp_(kp), ki_(ki), kd_(kd), minOut_(minOut), maxOut_(maxOut),
       integral_(0.0), prevError_(0.0), initialized_(false) {}
 
 double PIDController::update(double setpoint, double measurement, double dt) {

@@ -1,48 +1,74 @@
-# Resource-Constrained Hybrid MPC-PID Control for Industrial Process Automation
+# Resource-Constrained Hybrid MPC–PID Control for Industrial Process Automation
 
-This repository presents an end-to-end industrial process control prototype combining:
-- Python-based nonlinear tank simulation
-- C++ PID controller for baseline regulation
-- constrained MPC implemented with a quadratic-programming solver (OSQP)
-- hybrid supervisory logic that blends PID and MPC for resource-aware operation
-- benchmarking and documentation
+This project presents a hybrid control strategy for a level-control process commonly found in industrial automation systems. The goal is to regulate tank liquid height under actuator limits while managing computational effort. The solution combines a classical PID controller with constrained model predictive control (MPC), and applies a supervisory policy that chooses the appropriate controller depending on operating conditions.
 
-## Project objective
+## 1. Problem formulation
 
-The goal is to regulate the level of a liquid tank while respecting actuator constraints and computational limits. The system demonstrates how a hybrid controller can balance:
-- fast, simple PID response for nominal operation
-- predictive MPC when the process is far from setpoint or near constraints
-- lower computational burden than full MPC at all times
+A tank-level process can be modeled by a nonlinear mass balance:
 
-## Process model
+A dh/dt = q_in - q_out
 
-The process is modeled as a nonlinear tank:
+where:
+- A is tank cross-sectional area
+- q_in is inflow to the tank
+- q_out = k_out * sqrt(h) is the outflow depending on height
 
-A * dh/dt = q_in - q_out
+The nonlinear state dynamics are therefore:
 
-with the outflow approximated as:
+h_dot = (q_in - k_out * sqrt(h)) / A
 
-q_out = k_out * sqrt(h)
+This model is representative of many industrial tanks, sumps, and surge vessels.
 
-This nonlinear first-order model is used in the Python simulation, while the C++ MPC uses a local linearized model around the operating point.
+## 2. Control architecture
 
-## Repository structure
+The controller combines two strategies:
+- PID: used in nominal operation for simplicity and speed
+- MPC: used when the system is far from setpoint, highly dynamic, or near constraint boundaries
 
-- `python/`: simulation and plotting scripts
-- `src/`: C++ implementation of the controllers and benchmark app
-- `docs/`: benchmark notes and technical summary
-- `CMakeLists.txt`: project build configuration
+A hybrid supervisor selects between them based on tracking error and operating conditions.
 
-## Build and run
+## 3. Mathematical modeling
 
-### Requirements
+A linearized discrete-time model around an operating point is used for MPC:
+
+x[k+1] = A x[k] + B u[k]
+
+y[k] = C x[k]
+
+For the tank-level process:
+- x = h
+- u = q_in
+- A = 1 - dt * (k_out / (2 A sqrt(h0)))
+- B = dt / A
+
+The predictive controller minimizes a quadratic cost over a finite horizon:
+
+J = sum_{k=0}^{N-1} (x[k] - x_ref)^T Q (x[k] - x_ref) + u[k]^T R u[k]
+
+with input constraints:
+
+u_min <= u[k] <= u_max
+
+## 4. Repository structure
+
+- `python/`: nonlinear simulation and data plotting
+- `src/common/`: tank model utilities
+- `src/pid/`: PID implementation in C++
+- `src/mpc/`: constrained MPC controller in C++
+- `src/hybrid/`: hybrid switching logic
+- `src/benchmark/`: performance comparison and benchmark calculations
+- `docs/`: technical notes
+
+## 5. Build and execution
+
+Requirements:
 - CMake 3.16+
 - C++17 compiler
 - Python 3.10+
 - NumPy
 - Matplotlib
 
-### C++ build
+### Build C++ project
 
 ```bash
 mkdir -p build
@@ -51,49 +77,31 @@ cmake --build build
 ./build/hybrid_control_app
 ```
 
-### Python simulation
+### Run Python simulation
 
 ```bash
 python3 -m pip install -r requirements.txt
 python3 python/run_simulation.py
 ```
 
-A plot and CSV file will be generated in the `python/` directory.
+### Generate benchmark plots
 
-## What is included
-
-1. Python tank simulation
-   - nonlinear model
-   - disturbance and setpoint handling
-   - plotting
-
-2. C++ PID controller
-   - proportional-integral-derivative tuning
-   - actuator bounds
-   - anti-windup style integral behavior
-
-3. Constrained MPC
-   - quadratic-programming formulation using OSQP
-   - bounded input constraints
-   - predictive regulation around a setpoint
-
-4. Benchmarking and documentation
-   - latency comparison for PID and MPC
-   - integral absolute error comparison
-   - structured research summary
-
-## Example benchmark output
-
-```text
-PID avg latency: 0.32 ms
-MPC avg latency: 1.84 ms
-Hybrid obj score: 93.6
-PID IAE: 47.2
-MPC IAE: 29.8
-Hybrid IAE: 27.1
+```bash
+python3 python/plot_results.py
 ```
 
-## Notes
+## 6. Expected results
 
-This project is intentionally educational and research-oriented. It is designed to be easy to understand, compile, and extend for academic or prototype use.
+The benchmark compares:
+- PID-only regulation quality and latency
+- MPC-only regulation quality and latency
+- Hybrid PID–MPC operation under dynamic conditions
 
+The hybrid strategy is intended to provide a practical trade-off:
+- PID is low-computation and fast
+- MPC improves tracking and constraint satisfaction when needed
+- hybrid logic reduces computational demand while preserving performance
+
+## 7. Notes
+
+This is a compact but complete educational and research-grade control project suitable for demonstrating industrial process automation, model-based control, and performance benchmarking.

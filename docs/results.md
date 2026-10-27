@@ -1,34 +1,37 @@
 # Benchmark notes
 
-## Overview
+## Objective
 
-This repository targets a classic industrial automation benchmark: controlling the level in a nonlinear tank process.
+This project evaluates a hybrid controller for a tank-level process in industrial automation. The system compares a conventional PID controller with a predictive MPC controller, then combines them inside a supervisory hybrid architecture.
 
-## Controlled process
+## Process model
 
-The process is represented by a nonlinear first-order model:
+The nonlinear process is described by:
 
-A * dh/dt = q_in - k_out * sqrt(h)
+A dh/dt = q_in - k_out sqrt(h)
 
-The behavior is nonlinear because the outflow depends on the square root of the tank height.
+This reflects one of the most common industrial process dynamics: a storage tank with inflow control and gravity-driven outflow.
 
-## Controller comparison
+## Control logic
 
-- PID controller: simple, fast, low computational cost
-- MPC controller: better predictive performance under constraint handling
-- Hybrid controller: practical blend of both perspectives
+The PID controller minimizes instantaneous tracking error and is effective for nominal conditions. The MPC controller minimizes a multistep cost with predicted future behavior and actuator constraints. The hybrid controller chooses MPC when the process is far from setpoint or near operational limits, and otherwise uses PID.
+
+## Benchmark outputs
+
+The benchmark captures:
+- average control latency
+- integral absolute error (IAE)
+- actuator effort and smoothness
 
 ## Interpretation
 
-The hybrid controller is especially attractive in industrial systems because it combines robustness with computational practicality. PID is ideal under normal conditions, while MPC is engaged during large excursions or near-constraint operation.
+A hybrid strategy is useful in resource-constrained automation because it reduces unnecessary optimization overhead while maintaining predictive performance under critical conditions.
 
-## Recommended use cases
+## Application relevance
 
-- tank-level regulation
-- inflow/outflow balancing
-- process plants with actuator saturation
-- resource-constrained embedded control systems
-
-## Summary
-
-The project demonstrates a realistic industrial automation workflow, from modeling to controller implementation and benchmarking.
+This project is directly relevant to:
+- liquid storage systems
+- chemical process units
+- water treatment plants
+- industrial surge tanks
+- refinery and utility operations
