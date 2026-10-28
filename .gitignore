@@ -1,2 +1,14 @@
-numpy>=1.26
-matplotlib>=3.7
+# CMake build output
+/build/
+/cmake-build-*/
+
+# Python environments and bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+
+# Generated simulation output
+/python/tank_simulation.csv
+/python/tank_simulation.png
+/python/summary_plot.png

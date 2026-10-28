@@ -1,83 +1,140 @@
+
 #include "mpc/MPCController.hpp"
 
 #include <algorithm>
 #include <cmath>
-#include <iostream>
 #include <vector>
 
 extern "C" {
 #include "osqp.h"
 }
 
-MPCController::MPCController(double dt, int horizon,
-                             double qWeight, double rWeight, double deltaWeight)
-    : dt_(dt), horizon_(horizon), qWeight_(qWeight), rWeight_(rWeight), deltaWeight_(deltaWeight),
-      uMin_(0.0), uMax_(0.45) {}
+MPCController::MPCController(
+    double dt,
+    int horizon,
+    double qWeight,
+    double rWeight,
+    double deltaWeight
+)
+    : dt_(dt),
+      horizon_(horizon),
+      qWeight_(qWeight),
+      rWeight_(rWeight),
+      deltaWeight_(deltaWeight),
+      uMin_(0.0),
+      uMax_(0.45) {}
 
 void MPCController::configure(double uMin, double uMax) {
     uMin_ = uMin;
     uMax_ = uMax;
 }
 
-double MPCController::compute(double currentHeight, double setpoint, double previousInput) {
-    // Lightweight 1D QP approximation for a tank-level predictive controller.
-    // The optimization minimizes tracking error and smoothness while respecting bounds.
-    const int n = 1;
-    const int m = 1;
+double MPCController::compute(
+    double currentHeight,
+    double setpoint,
+    double previousInput
+) {
+    // Validate controller settings.
+    if (horizon_ <= 0 ||
+        dt_ <= 0.0 ||
+        qWeight_ < 0.0 ||
+        rWeight_ < 0.0 ||
+        deltaWeight_ < 0.0 ||
+        uMin_ > uMax_) {
+        return std::clamp(previousInput, uMin_, uMax_);
+    }
+
+    // Single-variable quadratic optimization.
+    // Note: this is a simplified control approximation,
+    // not a full multi-step predictive tank model.
+    constexpr OSQPInt n = 1;
+    constexpr OSQPInt m = 1;
 
     const double trackingPenalty = qWeight_;
     const double inputPenalty = rWeight_;
     const double deltaPenalty = deltaWeight_;
 
-    const double objectiveQuadratic = 2.0 * (trackingPenalty + inputPenalty + deltaPenalty);
-    const double objectiveLinear = -2.0 * (trackingPenalty * setpoint + deltaPenalty * previousInput);
+    const double Pvalue =
+        2.0 * (trackingPenalty + inputPenalty + deltaPenalty);
 
-    std::vector<c_float> P_x = {static_cast<c_float>(objectiveQuadratic)};
-    std::vector<c_int> P_i = {0};
-    std::vector<c_int> P_p = {0, 1};
+    const double qvalue =
+        -2.0 * (trackingPenalty * (setpoint - currentHeight)
+                + deltaPenalty * previousInput);
 
-    std::vector<c_float> A_x = {1.0f};
-    std::vector<c_int> A_i = {0};
-    std::vector<c_int> A_p = {0, 1};
+    // OSQP requires a positive-semidefinite P matrix.
+    // Add a small regularization term if all weights are zero.
+    const OSQPFloat P_x[] = {
+        static_cast<OSQPFloat>(std::max(Pvalue, 1e-8))
+    };
+    OSQPInt P_i[] = {0};
+    OSQPInt P_p[] = {0, 1};
 
-    std::vector<c_float> q = {static_cast<c_float>(objectiveLinear)};
-    std::vector<c_float> l = {static_cast<c_float>(uMin_)};
-    std::vector<c_float> u = {static_cast<c_float>(uMax_)};
+    const OSQPFloat A_x[] = {1.0};
+    OSQPInt A_i[] = {0};
+    OSQPInt A_p[] = {0, 1};
 
-    csc* P = csc_matrix(n, n, 1, P_x.data(), P_i.data(), P_p.data());
-    csc* A = csc_matrix(n, m, 1, A_x.data(), A_i.data(), A_p.data());
+    const OSQPFloat q[] = {
+        static_cast<OSQPFloat>(qvalue)
+    };
+    const OSQPFloat l[] = {
+        static_cast<OSQPFloat>(uMin_)
+    };
+    const OSQPFloat u[] = {
+        static_cast<OSQPFloat>(uMax_)
+    };
 
-    OSQPSettings* settings = osqp_settings_create();
-    osqp_set_default_settings(settings);
+    OSQPCscMatrix* P =
+        OSQPCscMatrix_new(n, n, 1, const_cast<OSQPFloat*>(P_x),
+                          P_i, P_p);
+
+    OSQPCscMatrix* A =
+        OSQPCscMatrix_new(m, n, 1, const_cast<OSQPFloat*>(A_x),
+                          A_i, A_p);
+
+    if (P == nullptr || A == nullptr) {
+        if (P != nullptr) OSQPCscMatrix_free(P);
+        if (A != nullptr) OSQPCscMatrix_free(A);
+        return std::clamp(previousInput, uMin_, uMax_);
+    }
+
+    OSQPSettings* settings = OSQPSettings_new();
+
+    if (settings == nullptr) {
+        OSQPCscMatrix_free(P);
+        OSQPCscMatrix_free(A);
+        return std::clamp(previousInput, uMin_, uMax_);
+    }
+
     settings->eps_abs = 1e-5;
     settings->eps_rel = 1e-5;
     settings->max_iter = 10000;
     settings->verbose = 0;
 
-    OSQPData* data = static_cast<OSQPData*>(c_malloc(sizeof(OSQPData)));
-    data->n = n;
-    data->m = m;
-    data->P = P;
-    data->q = q.data();
-    data->A = A;
-    data->l = l.data();
-    data->u = u.data();
+    OSQPSolver* solver = nullptr;
 
-    OSQPWorkspace* work = osqp_setup(data, settings);
-    double optimalInput = previousInput;
+    const OSQPInt setupResult =
+        osqp_setup(&solver, P, q, A, l, u, m, n, settings);
 
-    if (work != nullptr) {
-        int exitCode = osqp_solve(work);
-        if (exitCode == 0 && work->solution != nullptr && work->solution->x != nullptr) {
-            optimalInput = static_cast<double>(work->solution->x[0]);
+    double optimalInput = std::clamp(previousInput, uMin_, uMax_);
+
+    if (setupResult == 0 && solver != nullptr) {
+        const OSQPInt solveResult = osqp_solve(solver);
+
+        if (solveResult == 0 &&
+            solver->solution != nullptr &&
+            solver->solution->x != nullptr) {
+            optimalInput =
+                static_cast<double>(solver->solution->x[0]);
         }
-        osqp_cleanup(work);
     }
 
-    osqp_settings_destroy(settings);
-    c_free(data);
-    c_free(P);
-    c_free(A);
+    if (solver != nullptr) {
+        osqp_cleanup(solver);
+    }
+
+    OSQPCscMatrix_free(P);
+    OSQPCscMatrix_free(A);
+    OSQPSettings_free(settings);
 
     return std::clamp(optimalInput, uMin_, uMax_);
 }

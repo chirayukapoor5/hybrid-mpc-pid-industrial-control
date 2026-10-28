@@ -1,120 +1,99 @@
-# Resource-Constrained Hybrid MPC–PID Control for Industrial Process Automation
+# Hybrid MPC–PID Tank-Level Control
 
-This project implements a hybrid level-control strategy for a tank process used in industrial automation. The control architecture follows the ABB-inspired pattern of combining a conventional PID feedback loop with predictive model-based feedforward action.
+> A compact industrial-process control demo combining PID feedback with a constrained, OSQP-based predictive controller.
 
-The controller equation is:
+The project models a tank-level process and compares standalone PID, standalone MPC, and hybrid PID–MPC control. The hybrid controller keeps PID feedback in the loop and adds an MPC contribution before applying actuator limits.
 
-u_total = u_PID + u_MPC
+## At a glance
 
-where:
-- u_PID is the feedback correction computed from the error e = r - h
-- u_MPC is a predictive feedforward contribution computed from the model and current operating point
-- final actuator authority is clipped to the allowed bounds
+| Component | Purpose |
+|---|---|
+| Tank process | Nonlinear inflow/outflow model |
+| PID controller | Feedback correction from setpoint error |
+| MPC controller | Bounded quadratic optimization using OSQP |
+| Hybrid controller | Combines PID feedback and predictive action |
+| Python simulation | Writes tank data and plots to `python/` |
 
-This is the architecture most directly aligned with the ABB description: an existing PID loop remains in place, while MPC contributes an anticipatory correction based on the predicted future process behavior.
+The tank model is:
 
-## 1. Process model
+```text
+A · dh/dt = q_in - k_out · sqrt(h)
+```
 
-The tank dynamics are modeled as:
+The combined command is bounded before it reaches the process:
 
-A dh/dt = q_in - k_out sqrt(h)
+```text
+u_cmd = clamp(u_PID + u_MPC, u_min, u_max)
+```
 
-with a discrete-time approximation:
-
-h_{k+1} = h_k + (dt / A) (q_k - k_out sqrt(h_k))
-
-The nonlinear model is used for process simulation in Python, and a local linearized model is used inside the MPC optimization.
-
-## 2. MPC feedforward contribution
-
-The predictive controller solves a small quadratic program around the current operating point. The formulation is based on the standard tracking objective:
-
-min_{u_{ff}} sum_{i=1}^{N_p} Q (h_{k+i} - r)^2 + sum_{i=0}^{N_c-1} R (Delta u_{k+i})^2
-
-subject to:
-- u_min <= u_PID + u_ff <= u_max
-- h_min <= h <= h_max
-- input-rate limits, where used
-
-This project uses a simplified one-step predictive feedforward implementation to keep the controller compact and easy to compile while still preserving the essential ABB-style structure.
-
-## 3. Hybrid signal combination
-
-The actual implemented command law is:
-
-u_cmd = clamp(u_PID + u_MPC_ff, u_min, u_max)
-
-with:
-- u_PID = PID(r, h, dt)
-- u_MPC_ff = feedforward term from the linearized predictive model
-- clamp is applied to respect actuator bounds and to prevent unstable wind-up in saturated operation
-
-The hybrid supervisory logic only enables MPC feedforward when the system is outside the nominal operating band, when the error is large, or when the process is entering a transient condition that benefits from predictive action.
-
-## 4. Repository structure
-
-- `python/`: process simulation and plots
-- `src/common/`: tank model
-- `src/pid/`: feedback controller
-- `src/mpc/`: predictive controller and feedforward optimizer
-- `src/hybrid/`: ABB-style hybrid supervisor
-- `src/benchmark/`: benchmarking and metric collection
-- `docs/`: derivations and design notes
-
-## 5. Build and run
+## Build and run
 
 ### Requirements
-- CMake 3.16+
-- C++17 compiler
-- Python 3.10+
-- NumPy
-- Matplotlib
+
+- CMake 3.18 or newer
+- A C++17 compiler
+- Python 3.10 or newer for the simulation scripts
+
+Install the Python packages from the repository root:
+
+```powershell
+python -m pip install -r requirements.txt
+```
 
 ### Build the C++ application
 
-```bash
-mkdir -p build
+Run these commands from the repository root:
+
+```powershell
 cmake -S . -B build
-cmake --build build
-./build/hybrid_control_app
+cmake --build build --parallel
+.\build\src\hybrid_control_app.exe
 ```
 
-### Run the Python tank simulation
+On Linux or macOS, run the built executable with:
 
 ```bash
-python3 -m pip install -r requirements.txt
-python3 python/run_simulation.py
+./build/src/hybrid_control_app
 ```
 
-### Plot saved results
+### Run the Python simulation and plot
 
-```bash
-python3 python/plot_results.py
+```powershell
+python python\run_simulation.py
+python python\plot_results.py
 ```
 
-## 6. Experimental plan
+The simulation writes `python/tank_simulation.csv` and `python/tank_simulation.png`; the plotting script writes `python/summary_plot.png`. These are generated outputs and are excluded from Git.
 
-The benchmark script evaluates multiple scenarios:
-- setpoint step change
-- inflow disturbance
-- actuator saturation
-- model mismatch
-- solver failure fallback
-- different prediction horizons
+## Sample benchmark results
 
-The project records:
-- IAE
-- overshoot and settling time
-- constraint violations
-- mean, 95th percentile, and max execution time
-- peak memory footprint
-- MPC activation ratio
-- solver iteration count
+One local run of the C++ benchmark produced the following results:
 
-Important note: laptop measurements do not establish a real-time worst-case execution-time guarantee for ABB hardware. They provide a useful development benchmark and an empirical design signal, not a certified real-time bound.
+| Controller | IAE (200 samples) | Average controller time |
+|---|---:|---:|
+| PID | 0.521373 | 0 ms* |
+| MPC | 17.8192 | 0.051315 ms |
+| Hybrid PID–MPC | 1.13934 | 0 ms* |
 
-## 7. Documentation
+The run used a 0.5 s sample interval and a 0.55 tank-level setpoint. IAE is the sum of absolute level errors across the 200 samples. The benchmark prints latency with limited precision, so `0 ms*` means the measured average rounded to zero in its output—not that execution takes no time.
 
-See:
-- `docs/mathematical_formulation.md`
-- `docs/results.md`
+These are illustrative measurements from one development-machine run, not guaranteed performance figures. In this run the standalone MPC had higher IAE than PID; the results should not be read as proof that one controller is universally better. Benchmark timing is not a worst-case execution-time guarantee for industrial hardware.
+
+## Project layout
+
+```text
+python/       Tank simulation, CSV output, and plotting scripts
+src/common/   Tank process model
+src/pid/      PID feedback controller
+src/mpc/      OSQP-based predictive controller
+src/hybrid/   Hybrid PID–MPC controller
+src/benchmark/Benchmark and metric reporting
+docs/         Formulation and results notes
+```
+
+## Notes and documentation
+
+The MPC implementation is a compact, one-step quadratic optimization demo; it is not a certified industrial controller. Real deployment requires validation on the target process and hardware, including safety, constraint, and worst-case timing analysis.
+
+- [Mathematical formulation](docs/mathematical_formulation.md)
+- [Results and benchmark notes](docs/results.md)

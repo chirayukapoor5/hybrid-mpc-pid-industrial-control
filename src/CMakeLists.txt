@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.18)
 
 include(FetchContent)
 
@@ -19,7 +19,7 @@ target_include_directories(pid_controller PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_library(mpc_controller mpc/MPCController.cpp)
 target_include_directories(mpc_controller PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} ${osqp_SOURCE_DIR}/include)
-target_link_libraries(mpc_controller PUBLIC osqp)
+target_link_libraries(mpc_controller PUBLIC osqpstatic)
 
 add_library(hybrid_controller hybrid/HybridController.cpp)
 target_include_directories(hybrid_controller PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
@@ -31,4 +31,4 @@ target_link_libraries(benchmark_lib PUBLIC tank_model pid_controller mpc_control
 
 add_executable(hybrid_control_app main.cpp)
 target_include_directories(hybrid_control_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(hybrid_control_app PRIVATE tank_model pid_controller mpc_controller hybrid_controller benchmark_lib osqp)
+target_link_libraries(hybrid_control_app PRIVATE tank_model pid_controller mpc_controller hybrid_controller benchmark_lib osqpstatic)
